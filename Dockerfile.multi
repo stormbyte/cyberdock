@@ -1,0 +1,21 @@
+FROM alpine:3.21
+
+ARG TARGETARCH
+
+RUN apk add --no-cache \
+    bash \
+    net-tools
+
+RUN mkdir -p /cyberdock
+
+# Copy the architecture-specific binary
+COPY bins/cyberdock-linux-alpine-${TARGETARCH}-static /bin/cyberdock
+
+# Make binary executable
+RUN chmod +x /bin/cyberdock
+
+WORKDIR /cyberdock
+
+EXPOSE 5000
+EXPOSE 5001
+CMD ["/bin/cyberdock"]
