@@ -788,8 +788,58 @@ func (s *Server) handleManifestPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only create tag symlink if reference is not a digest
+	// Only handle tag symlink if reference is not a digest
 	if !strings.HasPrefix(reference, "sha256:") {
+		// Check if tag already exists and get its current manifest
+		currentTagPath := filepath.Join(filepath.Dir(manifestPath), reference)
+		if fi, err := os.Lstat(currentTagPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			// Read the current symlink target
+			oldTarget, err := os.Readlink(currentTagPath)
+			if err == nil {
+				oldManifestPath := filepath.Join(filepath.Dir(manifestPath), oldTarget)
+
+				// Count references to the old manifest
+				entries, err := os.ReadDir(filepath.Dir(manifestPath))
+				if err == nil {
+					linkCount := 0
+					for _, entry := range entries {
+						if entry.Type()&os.ModeSymlink != 0 {
+							if entry.Name() == reference {
+								continue // Skip the tag we're updating
+							}
+							target, err := os.Readlink(filepath.Join(filepath.Dir(manifestPath), entry.Name()))
+							if err == nil && target == oldTarget {
+								linkCount++
+							}
+						}
+					}
+
+					// If this is the last reference, clean up the old manifest and its blobs
+					if linkCount == 0 {
+						log.Printf("DEBUG: No other tags reference the old manifest, cleaning up")
+						oldData, err := os.ReadFile(oldManifestPath)
+						if err == nil {
+							var oldManifest ManifestV2
+							if err := json.Unmarshal(oldData, &oldManifest); err == nil {
+								// Delete old layers
+								for _, layer := range oldManifest.Layers {
+									blobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", layer.Digest)
+									if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
+										log.Printf("WARNING: Failed to delete old layer %s: %v", layer.Digest, err)
+									}
+								}
+								// Delete old manifest
+								if err := os.Remove(oldManifestPath); err != nil && !os.IsNotExist(err) {
+									log.Printf("WARNING: Failed to delete old manifest: %v", err)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Create or update tag symlink
 		if err := s.paths.CreateTag(repository, reference, dgst.String()); err != nil {
 			log.Printf("ERROR: Failed to create tag symlink: %v", err)
 			// Don't fail the whole operation if just the symlink fails

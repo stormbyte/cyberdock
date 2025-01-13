@@ -5,7 +5,7 @@
   <p><strong>Cyberpunk Docker Registry Interface</strong></p>
   <p>🐳 Docker Registry | 🌍 Web UI | ⚡ Fast | 🎨 Beautiful | 🔒 Secure</p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.4.0-blue.svg" alt="Version 0.4.0">
+    <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version 0.4.0">
     <img src="https://img.shields.io/badge/go-%3E%3D1.21-00ADD8.svg" alt="Go Version">
     <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg" alt="Platform Support">
     <img src="https://img.shields.io/badge/license-GPLv3-green.svg" alt="License">
@@ -43,6 +43,7 @@ CyberDock is a sleek, cyberpunk-themed Docker Registry with an integrated web in
         <li>Layer tarballs</li>
         <li>Cross-repository blob mounting</li>
         <li>Range request support</li>
+        <li>🎉v0.2.0:Garbage collection</li>
       </ul>
     </td>
   </tr>
