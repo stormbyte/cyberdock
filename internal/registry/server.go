@@ -1279,15 +1279,19 @@ func (s *Server) DeleteImage(repository, reference string) error {
 		}
 	}
 
-	// Delete the tag symlink
-	log.Printf("DEBUG: Deleting tag symlink at: %s", fullManifestPath)
-	if err := os.Remove(fullManifestPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete manifest symlink: %v", err)
+	// Delete the tag symlink if it exists
+	if fi.Mode()&os.ModeSymlink != 0 {
+		log.Printf("DEBUG: Deleting tag symlink at: %s", fullManifestPath)
+		if err := os.Remove(fullManifestPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to delete manifest symlink: %v", err)
+		}
 	}
 
-	// Only delete the manifest and layers if no other tags reference it
-	if linkCount == 0 {
-		log.Printf("DEBUG: No other tags reference this manifest, deleting manifest and layers")
+	// Delete the manifest and layers if:
+	// 1. No other tags reference it (linkCount == 0), or
+	// 2. It's a direct manifest file (not a symlink)
+	if linkCount == 0 || (fi.Mode()&os.ModeSymlink == 0) {
+		log.Printf("DEBUG: No other tags reference this manifest or it's an untagged manifest, deleting manifest and layers")
 
 		// Read manifest to get layer digests
 		data, err := os.ReadFile(actualManifestPath)
@@ -1298,27 +1302,30 @@ func (s *Server) DeleteImage(repository, reference string) error {
 		// Try to parse as V2 manifest first
 		var manifest ManifestV2
 		if err := json.Unmarshal(data, &manifest); err == nil {
-			log.Printf("DEBUG: Found V2 manifest with %d layers", len(manifest.Layers))
 			// Delete all layers
 			for _, layer := range manifest.Layers {
-				// Construct the full blob path according to design
-				fullBlobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", layer.Digest)
-				log.Printf("DEBUG: Deleting layer at: %s", fullBlobPath)
-				if err := os.Remove(fullBlobPath); err != nil && !os.IsNotExist(err) {
+				blobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", layer.Digest)
+				log.Printf("DEBUG: Deleting layer at: %s", blobPath)
+				if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
 					log.Printf("WARNING: Failed to delete layer %s: %v", layer.Digest, err)
+				}
+			}
+			// Delete config blob if it exists
+			if manifest.Config.Digest != "" {
+				configPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", manifest.Config.Digest)
+				if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+					log.Printf("WARNING: Failed to delete config blob: %v", err)
 				}
 			}
 		} else {
 			// Try to parse as OCI index
 			var index OCIIndex
 			if err := json.Unmarshal(data, &index); err == nil {
-				log.Printf("DEBUG: Found OCI index with %d manifests", len(index.Manifests))
 				// Delete all manifests in the index
 				for _, m := range index.Manifests {
-					// Construct the full blob path according to design
-					fullBlobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
-					log.Printf("DEBUG: Deleting manifest blob at: %s", fullBlobPath)
-					if err := os.Remove(fullBlobPath); err != nil && !os.IsNotExist(err) {
+					blobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
+					log.Printf("DEBUG: Deleting manifest blob at: %s", blobPath)
+					if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
 						log.Printf("WARNING: Failed to delete manifest %s: %v", m.Digest, err)
 					}
 				}
