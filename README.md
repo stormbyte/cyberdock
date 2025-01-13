@@ -7,7 +7,7 @@
   <p>
     <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version 0.4.0">
     <img src="https://img.shields.io/badge/go-%3E%3D1.21-00ADD8.svg" alt="Go Version">
-    <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg" alt="Platform Support">
+    <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20docker-brightgreen.svg" alt="Platform Support">
     <img src="https://img.shields.io/badge/license-GPLv3-green.svg" alt="License">
   </p>
 </div>
