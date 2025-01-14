@@ -94,6 +94,11 @@ CyberDock runs two servers:
 - Registry server on port 5000
 - Web UI server on port 5001
 
+Remote Purge ☢️
+```bash
+curl -k -X POST https://cyberdock:5001/api/purge
+```
+
 ### Docker Configuration
 
 Add to your Docker daemon configuration:
