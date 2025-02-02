@@ -33,6 +33,7 @@ type Server struct {
 	registry  *registry.Server
 	diskUsage DiskUsage
 	router    *mux.Router
+	version   string
 }
 
 // DiskUsage represents registry storage statistics
@@ -46,7 +47,7 @@ type DiskUsage struct {
 }
 
 // NewServer creates a new UI server instance
-func NewServer(cert, key []byte, certFile, keyFile string, port int, registry *registry.Server) *Server {
+func NewServer(cert, key []byte, certFile, keyFile string, port int, registry *registry.Server, version string) *Server {
 	return &Server{
 		port:     port,
 		cert:     cert,
@@ -55,6 +56,7 @@ func NewServer(cert, key []byte, certFile, keyFile string, port int, registry *r
 		keyFile:  keyFile,
 		registry: registry,
 		router:   mux.NewRouter(),
+		version:  version,
 	}
 }
 
@@ -101,6 +103,12 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		"mul": func(a, b float64) float64 {
 			return a * b
 		},
+		"div": func(a, b int) float64 {
+			if b == 0 {
+				return 0
+			}
+			return float64(a) / float64(b)
+		},
 	}
 
 	tmpl, err := template.New("index.html").Funcs(funcMap).ParseFS(templateFS, "web/templates/index.html")
@@ -127,7 +135,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 		Title:        "CyberDock Registry",
 		DiskUsage:    s.diskUsage,
 		LastUpdate:   s.diskUsage.LastCheck,
-		Version:      "0.4.0",
+		Version:      s.version,
 		RegistryHost: registryHost,
 	}
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-VERSION="0.2.0d"
+VERSION="0.3.0d"
 rm -rf bins/*
 mkdir -p bins
 
@@ -45,11 +45,14 @@ cd -
 
 echo "Build complete!"
 
-# Building Docker Image
-echo "Building for Linux platform..."
-docker buildx build \
-  --push \
-  --platform linux/amd64,linux/arm64 \
-  -t mattrogers/cyberdock:latest \
-  -t mattrogers/cyberdock:${VERSION} \
-  -f Dockerfile.multi .
+read -p "Push to Docker Hub? (y/n): " push
+if [ "$push" = "y" ]; then
+  # Building Docker Image
+  echo "Building for Linux platform..."
+  docker buildx build \
+    --push \
+    --platform linux/amd64,linux/arm64 \
+    -t mattrogers/cyberdock:latest \
+    -t mattrogers/cyberdock:${VERSION} \
+    -f Dockerfile.multi .
+fi

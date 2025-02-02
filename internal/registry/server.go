@@ -932,7 +932,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 	last := r.URL.Query().Get("last")
 
 	// Get repositories directory path
-	reposDir := filepath.Join(s.dataDir, storage.RepositoriesDir)
+	reposDir := filepath.Join(s.dataDir, "registry", storage.RepositoriesDir)
 
 	var repositories []string
 	err := filepath.Walk(reposDir, func(path string, info os.FileInfo, err error) error {
@@ -943,24 +943,24 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		// Skip root directory
-		if path == reposDir {
-			return nil
-		}
-
-		// Only process manifest directories
+		// Skip if not a manifests directory
 		if !info.IsDir() || !strings.HasSuffix(path, "manifests") {
 			return nil
 		}
 
-		// Get repository path relative to repositories directory
-		relPath, err := filepath.Rel(reposDir, filepath.Dir(path))
-		if err != nil {
-			return err
-		}
+		// Get repository path by removing reposDir prefix and manifests suffix
+		relPath := strings.TrimPrefix(path, reposDir)
+		relPath = strings.TrimPrefix(relPath, "/")
+		relPath = strings.TrimSuffix(relPath, "/manifests")
 
 		// Skip if before last parameter
 		if last != "" && relPath <= last {
+			return nil
+		}
+
+		// Validate the repository path
+		if err := s.paths.ValidateRepository(relPath); err != nil {
+			log.Printf("WARNING: Invalid repository path found: %s", relPath)
 			return nil
 		}
 
@@ -1091,17 +1091,33 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 		repository := parts[0]
 		reference := parts[2]
 
-		// Skip if not a manifest file (i.e., skip symlinks)
-		if !strings.HasPrefix(reference, "sha256:") {
-			return nil
+		// Handle symlinks (tags)
+		var manifestPath string
+		var manifestReference string
+		if info.Mode()&os.ModeSymlink != 0 {
+			// This is a tag symlink
+			target, err := os.Readlink(path)
+			if err != nil {
+				log.Printf("WARNING: Failed to read symlink %s: %v", path, err)
+				return nil
+			}
+			manifestReference = target
+			manifestPath = filepath.Join(filepath.Dir(path), target)
+		} else {
+			// This is a manifest file
+			if !strings.HasPrefix(reference, "sha256:") {
+				return nil
+			}
+			manifestReference = reference
+			manifestPath = path
 		}
 
 		log.Printf("DEBUG: Processing manifest for repository %s, reference %s", repository, reference)
 
 		// Read manifest
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(manifestPath)
 		if err != nil {
-			log.Printf("WARNING: Error reading manifest file %s: %v", path, err)
+			log.Printf("WARNING: Error reading manifest file %s: %v", manifestPath, err)
 			return nil
 		}
 
@@ -1110,14 +1126,14 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 			// Try parsing as OCI index
 			var index OCIIndex
 			if err := json.Unmarshal(data, &index); err != nil {
-				log.Printf("WARNING: Error parsing manifest/index file %s: %v", path, err)
+				log.Printf("WARNING: Error parsing manifest/index file %s: %v", manifestPath, err)
 				return nil
 			}
 			// Handle OCI index
 			for _, m := range index.Manifests {
 				// Get the actual manifest for this platform
-				manifestPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
-				manifestData, err := os.ReadFile(manifestPath)
+				platformManifestPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
+				manifestData, err := os.ReadFile(platformManifestPath)
 				if err != nil {
 					log.Printf("WARNING: Error reading platform manifest %s: %v", m.Digest, err)
 					continue
@@ -1139,12 +1155,17 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 				imageInfo := ImageInfo{
 					Repository: repository,
 					Name:       repository,
-					Tag:        "latest", // Default to latest for now
-					MediaType:  m.MediaType,
-					Digest:     m.Digest,
-					Size:       totalSize,
-					Created:    info.ModTime(),
-					Platform:   m.Platform,
+					Tag: func() string {
+						if info.Mode()&os.ModeSymlink != 0 {
+							return reference
+						}
+						return "latest"
+					}(),
+					MediaType: m.MediaType,
+					Digest:    m.Digest,
+					Size:      totalSize,
+					Created:   info.ModTime(),
+					Platform:  m.Platform,
 				}
 
 				// Copy layers from the platform manifest
@@ -1168,52 +1189,33 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 			totalSize += layer.Size
 		}
 
-		// Find all tags pointing to this manifest
-		tags := []string{}
-		manifestsDir := filepath.Dir(path)
-		tagFiles, err := os.ReadDir(manifestsDir)
-		if err == nil {
-			for _, file := range tagFiles {
-				if file.Type()&os.ModeSymlink != 0 {
-					linkPath := filepath.Join(manifestsDir, file.Name())
-					target, err := os.Readlink(linkPath)
-					if err == nil && filepath.Base(target) == reference {
-						tags = append(tags, file.Name())
-					}
+		imageInfo := ImageInfo{
+			Repository: repository,
+			Name:       repository,
+			Tag: func() string {
+				if info.Mode()&os.ModeSymlink != 0 {
+					return reference
 				}
+				return strings.TrimPrefix(manifestReference, "sha256:")
+			}(),
+			MediaType: manifest.MediaType,
+			Digest:    manifestReference,
+			Size:      totalSize,
+			Created:   info.ModTime(),
+		}
+
+		// Copy layers
+		imageInfo.Layers = make([]LayerInfo, len(manifest.Layers))
+		for i, layer := range manifest.Layers {
+			imageInfo.Layers[i] = LayerInfo{
+				MediaType: layer.MediaType,
+				Digest:    layer.Digest,
+				Size:      layer.Size,
 			}
 		}
 
-		// If no tags found, use digest as tag
-		if len(tags) == 0 {
-			tags = append(tags, strings.TrimPrefix(reference, "sha256:"))
-		}
-
-		// Create an ImageInfo for each tag
-		for _, tag := range tags {
-			imageInfo := ImageInfo{
-				Repository: repository,
-				Name:       repository,
-				Tag:        tag,
-				MediaType:  manifest.MediaType,
-				Digest:     reference,
-				Size:       totalSize,
-				Created:    info.ModTime(),
-			}
-
-			// Copy layers
-			imageInfo.Layers = make([]LayerInfo, len(manifest.Layers))
-			for i, layer := range manifest.Layers {
-				imageInfo.Layers[i] = LayerInfo{
-					MediaType: layer.MediaType,
-					Digest:    layer.Digest,
-					Size:      layer.Size,
-				}
-			}
-
-			images = append(images, imageInfo)
-			log.Printf("DEBUG: Added image info for %s:%s", repository, tag)
-		}
+		images = append(images, imageInfo)
+		log.Printf("DEBUG: Added image info for %s:%s", repository, imageInfo.Tag)
 		return nil
 	})
 

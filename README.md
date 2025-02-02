@@ -1,11 +1,23 @@
 
-![screenshot](media/screen.png)
+<div align="center">
+<table>
+  <tr>
+    <td>
+      <img src="media/screen.png" alt="screenshot">
+    </td>
+    <td>
+      <img src="media/charts.png" alt="charts">
+    </td>
+  </tr>
+</table>
+</div>
+
 <div align="center">
   <h1>CyberDock</h1>
   <p><strong>Cyberpunk Docker Registry Interface</strong></p>
   <p>🐳 Docker Registry | 🌍 Web UI | ⚡ Fast | 🎨 Beautiful | 🔒 Secure</p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version 0.4.0">
+    <img src="https://img.shields.io/badge/version-0.3.0d-blue.svg" alt="Version 0.4.0">
     <img src="https://img.shields.io/badge/go-%3E%3D1.21-00ADD8.svg" alt="Go Version">
     <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20docker-brightgreen.svg" alt="Platform Support">
     <img src="https://img.shields.io/badge/license-GPLv3-green.svg" alt="License">
@@ -131,7 +143,20 @@ Command line flags:
 -g PORT  # Set web UI port (default: 5001)
 ```
 
+## ⚡️ Updates
+
+- 0.3.0d:
+  - Added storage efficiency analysis
+  - Added image density metric
+  - Added repository health metric
+  - Added total layers and average layers per image metrics
+  - Added layer distribution chart
+  - Bugfixes for dashes and long names
+
 <div align="center">
+  <img src="media/screen.png" alt="screenshot">
+  <img src="media/charts.png" alt="charts">
+
 
 ## ⚖️ License
 

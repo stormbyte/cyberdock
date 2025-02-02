@@ -41,6 +41,14 @@ header h1 {
     opacity: 0.8;
 }
 
+.version {
+    margin: 0.2rem 0 0 0;
+    font-size: 0.7rem;
+    color: var(--neon-green);
+    opacity: 0.7;
+    text-shadow: 0 0 5px var(--neon-green);
+}
+
 .registry-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
@@ -1121,4 +1129,70 @@ footer {
     .social-links {
         margin-top: 0.5rem;
     }
+}
+
+.chart-stats {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 1rem;
+    padding: 0.5rem;
+    background: rgba(0, 255, 0, 0.05);
+    border: 1px solid var(--neon-green);
+}
+
+.stat {
+    text-align: center;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--neon-green);
+    margin-bottom: 0.2rem;
+}
+
+.stat-value {
+    font-size: 1.1rem;
+    color: var(--text-color);
+    text-shadow: 0 0 5px var(--neon-green);
+}
+
+.efficiency-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.efficiency-metric {
+    background: rgba(0, 255, 0, 0.05);
+    border: 1px solid var(--neon-green);
+    padding: 1rem;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.efficiency-metric:hover {
+    box-shadow: 0 0 15px var(--neon-green);
+    transform: translateY(-2px);
+}
+
+.efficiency-metric h4 {
+    margin: 0 0 0.5rem 0;
+    color: var(--neon-green);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    color: var(--text-color);
+    text-shadow: 0 0 10px var(--neon-green);
+    margin: 0.5rem 0;
+}
+
+.metric-desc {
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 0.5rem;
 }

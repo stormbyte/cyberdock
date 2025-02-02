@@ -22,7 +22,7 @@ import (
 const (
 	defaultRegistryPort = 5000
 	defaultUIPort       = 5001
-	version             = "0.2.0d"
+	version             = "0.3.0d"
 )
 
 // These will be set at build time
@@ -135,7 +135,7 @@ func main() {
 	}
 
 	// Create UI server with registry instance
-	uiServer := ui.NewServer(certData, keyData, cert.CertFile, cert.KeyFile, *uiPort, registryServer)
+	uiServer := ui.NewServer(certData, keyData, cert.CertFile, cert.KeyFile, *uiPort, registryServer, version)
 
 	// Start registry server in a goroutine
 	go func() {

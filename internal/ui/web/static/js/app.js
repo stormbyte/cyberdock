@@ -512,6 +512,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 fetchRegistryData();
             } else if (tab === 'tags') {
                 fetchTagsData();
+            } else if (tab === 'analytics') {
+                updateAnalytics();
             }
         });
     });
@@ -699,6 +701,161 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize search functionality
     const search = initializeSearch();
     window.searchHandler = search; // Make search handler available globally
+
+    // Function to calculate and update analytics
+    async function updateAnalytics() {
+        try {
+            const images = await apiRequest('/api/images');
+            if (!images || !images.length) return;
+
+            // Calculate total layers and average layers per image
+            let totalLayers = 0;
+            let uniqueLayers = new Set();
+            let totalSize = 0;
+
+            images.forEach(image => {
+                if (image.layers) {
+                    totalLayers += image.layers.length;
+                    image.layers.forEach(layer => {
+                        uniqueLayers.add(layer.digest);
+                        totalSize += layer.size;
+                    });
+                }
+            });
+
+            const avgLayers = totalLayers / images.length;
+            const imageDensity = totalSize / images.length;
+
+            // Calculate repository health score (0-100)
+            const layerReuseRatio = 1 - (uniqueLayers.size / totalLayers);
+            const tagRatio = window.TOTAL_TAGS / images.length;
+            const storageEfficiency = parseFloat(window.STORAGE_EFFICIENCY);
+
+            const healthScore = Math.round(
+                (layerReuseRatio * 0.4 + // Layer reuse weight
+                Math.min(tagRatio / 2, 1) * 0.3 + // Tag ratio weight (capped at 2:1)
+                storageEfficiency * 0.3) * 100 // Storage efficiency weight
+            );
+
+            // Update UI
+            document.getElementById('totalLayersValue').textContent = totalLayers;
+            document.getElementById('avgLayersValue').textContent = avgLayers.toFixed(1);
+            document.getElementById('imageDensityValue').textContent = formatSize(imageDensity);
+            document.getElementById('repoHealthValue').textContent = `${healthScore}%`;
+
+            // Update charts
+            updateDiskUsageChart();
+            updateLayerDistributionChart(images);
+        } catch (error) {
+            console.error('Error updating analytics:', error);
+        }
+    }
+
+    // Function to update disk usage chart
+    function updateDiskUsageChart() {
+        const ctx = document.getElementById('diskUsageChart').getContext('2d');
+        const usedSpace = parseInt(window.DISK_USAGE);
+        const freeSpace = parseInt(window.FREE_SPACE);
+
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Used Space', 'Free Space'],
+                datasets: [{
+                    data: [usedSpace, freeSpace],
+                    backgroundColor: [
+                        'rgba(0, 255, 0, 0.5)',
+                        'rgba(100, 100, 100, 0.5)'
+                    ],
+                    borderColor: [
+                        'rgba(0, 255, 0, 1)',
+                        'rgba(100, 100, 100, 1)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            color: '#fff'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Function to update layer distribution chart
+    function updateLayerDistributionChart(images) {
+        const ctx = document.getElementById('layerChart').getContext('2d');
+        const layerSizes = {};
+
+        // Aggregate layer sizes
+        images.forEach(image => {
+            if (image.layers) {
+                image.layers.forEach(layer => {
+                    const shortDigest = layer.digest.substring(7, 19);
+                    if (layerSizes[shortDigest]) {
+                        layerSizes[shortDigest].count++;
+                    } else {
+                        layerSizes[shortDigest] = {
+                            size: layer.size,
+                            count: 1
+                        };
+                    }
+                });
+            }
+        });
+
+        // Sort and take top 10 most reused layers
+        const topLayers = Object.entries(layerSizes)
+            .sort((a, b) => b[1].count - a[1].count)
+            .slice(0, 10);
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: topLayers.map(([digest]) => digest),
+                datasets: [{
+                    label: 'Reuse Count',
+                    data: topLayers.map(([, data]) => data.count),
+                    backgroundColor: 'rgba(0, 255, 0, 0.5)',
+                    borderColor: 'rgba(0, 255, 0, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            color: '#fff'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            color: '#fff'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+    }
 });
 
 // Add search-related styles to the existing CSS

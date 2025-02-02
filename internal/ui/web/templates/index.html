@@ -13,9 +13,8 @@
     <div class="container">
         <header>
             <h1><a href="https://github.com/ramborogers/cyberdock" target="_blank" class="title-link">CyberDock</a></h1>
-            <p class="subtitle">Docker Registry Interface</p>
+            <p class="subtitle">Docker Registry Interface and Server - Version {{.Version}}</p>
         </header>
-
         <div class="stats-panel">
             <div class="stat-block disk-block">
                 <div class="cyber-stats">
@@ -100,14 +99,55 @@
                         <div class="chart-container">
                             <h3>Disk Usage Trend</h3>
                             <canvas id="diskUsageChart"></canvas>
+                            <div class="chart-stats">
+                                <div class="stat">
+                                    <span class="stat-label">Current Usage</span>
+                                    <span class="stat-value">{{.DiskUsage.Size | formatSize}}</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="stat-label">Free Space</span>
+                                    <span class="stat-value">{{.DiskUsage.FreeSpace | formatSize}}</span>
+                                </div>
+                            </div>
                         </div>
                         <div class="chart-container">
                             <h3>Layer Distribution</h3>
                             <canvas id="layerChart"></canvas>
+                            <div class="chart-stats">
+                                <div class="stat">
+                                    <span class="stat-label">Total Layers</span>
+                                    <span id="totalLayersValue" class="stat-value">Loading...</span>
+                                </div>
+                                <div class="stat">
+                                    <span class="stat-label">Avg Layers/Image</span>
+                                    <span id="avgLayersValue" class="stat-value">Loading...</span>
+                                </div>
+                            </div>
                         </div>
                         <div class="dedup-stats">
-                            <h3>Storage Efficiency</h3>
-                            <div id="dedupStats">Loading efficiency data...</div>
+                            <h3>Storage Efficiency Analysis</h3>
+                            <div class="efficiency-grid">
+                                <div class="efficiency-metric">
+                                    <h4>Storage Efficiency</h4>
+                                    <div class="metric-value">{{printf "%.1f%%" (mul .DiskUsage.StorageEfficiency 100)}}</div>
+                                    <div class="metric-desc">Space saved through layer deduplication</div>
+                                </div>
+                                <div class="efficiency-metric">
+                                    <h4>Image Density</h4>
+                                    <div id="imageDensityValue" class="metric-value">Loading...</div>
+                                    <div class="metric-desc">Average size per image</div>
+                                </div>
+                                <div class="efficiency-metric">
+                                    <h4>Tag Ratio</h4>
+                                    <div class="metric-value">{{printf "%.2f" (div .DiskUsage.TotalTags .DiskUsage.TotalImages)}}</div>
+                                    <div class="metric-desc">Tags per image</div>
+                                </div>
+                                <div class="efficiency-metric">
+                                    <h4>Repository Health</h4>
+                                    <div id="repoHealthValue" class="metric-value">Loading...</div>
+                                    <div class="metric-desc">Based on deduplication and organization</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -119,7 +159,7 @@
                 <div class="branding-content">
                     <span class="copyright">&copy;</span>
                     <a href="https://matthewrogers.org" target="_blank" class="social-link">Matthew Rogers</a>
-                    <span>2024</span>
+                    <span>2025</span>
                     <span class="separator">&bull;</span>
                     <span>All Rights Reserved</span>
                     <span class="separator">&bull;</span>
