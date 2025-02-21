@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Function to format image size
     const formatSize = (bytes) => {
         if (bytes === 0) return '0 Bytes';
+        if (bytes < 1024) return bytes + ' Bytes';
         const k = 1024;
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -270,9 +271,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 console.log('DEBUG: Delete successful');
-                await refreshStatistics();
-                await fetchRegistryData();
-                await fetchTagsData();
+                // Refresh all data
+                await Promise.all([
+                    refreshStatistics(),
+                    fetchRegistryData(),
+                    fetchTagsData()
+                ]);
+                // Force refresh the current tab
+                const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
+                if (activeTab === 'images') {
+                    await fetchRegistryData();
+                } else if (activeTab === 'tags') {
+                    await fetchTagsData();
+                }
             } catch (error) {
                 console.error('Error deleting image:', error);
                 alert(`Failed to delete image: ${error.message}`);
@@ -349,38 +360,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Group images by their project/namespace
+            const groupedImages = {};
+            images.forEach(image => {
+                const parts = (image.repository || 'Unknown').split('/');
+                const project = parts.length > 1 ? parts[0] : '';
+                const imageName = parts.length > 1 ? parts.slice(1).join('/') : parts[0];
+
+                if (!groupedImages[project]) {
+                    groupedImages[project] = [];
+                }
+                groupedImages[project].push({...image, displayName: imageName});
+            });
+
             const html = `
                 <div class="registry-list">
-                    ${images.map(image => {
-                        const repoName = image.repository || 'Unknown';
-                        const shortDigest = image.digest ? image.digest.substring(7, 19) : 'Unknown';
-                        return `
-                            <div class="repository-item">
-                                <div class="repository-header">
-                                    <h3 title="${repoName}">${repoName}</h3>
-                                    <div class="tag-info" title="${image.tag || 'latest'}">${(image.tag || 'latest').length > 10 ? (image.tag || 'latest').substring(0, 10) + '...' : (image.tag || 'latest')}</div>
-                                    <button class="delete-btn" data-repository="${image.repository}" data-reference="${image.tag}">Delete</button>
-                                </div>
-                                <div class="image-info">
-                                    <span class="image-size">Size: ${formatSize(image.size || 0)}</span>
-                                    <span class="image-created">Created: ${formatTimestamp(image.created)}</span>
-                                    <span class="image-digest" title="${image.digest || ''}">Digest: ${shortDigest}...</span>
-                                </div>
-                                <div class="layers">
-                                    <h4>Layers:</h4>
-                                    ${(image.layers || []).map(layer => {
-                                        const shortLayerDigest = layer.digest ? layer.digest.substring(7, 19) : 'Unknown';
-                                        return `
-                                            <div class="layer">
-                                                <span class="layer-digest" title="${layer.digest || ''}">${shortLayerDigest}...</span>
-                                                <span class="layer-size">${formatSize(layer.size || 0)}</span>
-                                            </div>
-                                        `;
-                                    }).join('')}
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
+                    ${Object.entries(groupedImages).map(([project, projectImages]) => `
+                        <div class="project-group ${!project ? 'no-project' : ''}">
+                            ${project ? `<h2 class="project-name">${project}</h2>` : ''}
+                            ${projectImages.map(image => {
+                                const shortDigest = image.digest ? image.digest.substring(7, 19) : 'Unknown';
+                                return `
+                                    <div class="repository-item">
+                                        <div class="repository-header">
+                                            <h3 title="${image.repository}">${image.displayName}</h3>
+                                            <div class="tag-info" title="${image.tag || 'latest'}">${(image.tag || 'latest').length > 10 ? (image.tag || 'latest').substring(0, 10) + '...' : (image.tag || 'latest')}</div>
+                                            ${image.mediaType === 'application/vnd.oci.image.index.v1+json' ? '<span class="platform-badge">Multi-platform</span>' : ''}
+                                            <button class="delete-btn" data-repository="${image.repository}" data-reference="${image.tag}">Delete</button>
+                                        </div>
+                                        <div class="image-info">
+                                            <span class="image-size">Size: ${formatSize(image.size || 0)}</span>
+                                            <span class="image-created">Created: ${formatTimestamp(image.created)}</span>
+                                            <span class="image-digest" title="${image.digest || ''}">Digest: ${shortDigest}...</span>
+                                        </div>
+                                        <div class="layers">
+                                            <h4>Layers:</h4>
+                                            ${(image.layers || []).map(layer => {
+                                                const shortLayerDigest = layer.digest ? layer.digest.substring(7, 19) : 'Unknown';
+                                                return `
+                                                    <div class="layer">
+                                                        <span class="layer-digest" title="${layer.digest || ''}">${shortLayerDigest}...</span>
+                                                        <span class="layer-size">${formatSize(layer.size || 0)}</span>
+                                                    </div>
+                                                `;
+                                            }).join('')}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `).join('')}
                 </div>
             `;
             registryContent.innerHTML = html;

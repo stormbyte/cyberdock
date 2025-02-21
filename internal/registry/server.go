@@ -572,7 +572,7 @@ func (s *Server) handleBlobDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	path := filepath.Join(s.dataDir, "repositories", repository, "blobs", digest)
+	path := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", digest)
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
@@ -613,10 +613,18 @@ func (s *Server) handleManifests(w http.ResponseWriter, r *http.Request) {
 
 // handleManifestHead handles HEAD requests for manifests
 func (s *Server) handleManifestHead(w http.ResponseWriter, r *http.Request) {
-	log.Printf("DEBUG: Handling manifest HEAD request for repository: %s, reference: %s", r.URL.Query().Get("repository"), r.URL.Query().Get("reference"))
+	vars := mux.Vars(r)
+	repository := vars["repository"]
+	reference := vars["reference"]
+	if repository == "" || reference == "" {
+		http.Error(w, "Repository or reference not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("DEBUG: Handling manifest HEAD request for repository: %s, reference: %s", repository, reference)
 	log.Printf("DEBUG: Accept header: %s", r.Header.Get("Accept"))
 
-	path := filepath.Join(s.dataDir, "repositories", r.URL.Query().Get("repository"), "manifests", r.URL.Query().Get("reference"))
+	path := filepath.Join(s.dataDir, "registry", "repositories", repository, "manifests", reference)
 
 	// Check if manifest exists
 	fi, err := os.Lstat(path)
@@ -890,27 +898,54 @@ func contains(slice []string, value string) bool {
 
 // handleManifestDelete handles DELETE requests for manifests
 func (s *Server) handleManifestDelete(w http.ResponseWriter, r *http.Request) {
-	path := filepath.Join(s.dataDir, "repositories", r.URL.Query().Get("repository"), "manifests", r.URL.Query().Get("reference"))
+	vars := mux.Vars(r)
+	repository := vars["repository"]
+	reference := vars["reference"]
+	if repository == "" || reference == "" {
+		http.Error(w, "Repository or reference not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("DEBUG: Deleting manifest for repository: %s, reference: %s", repository, reference)
+
+	// Construct the full path using registry/repositories as base
+	path := filepath.Join(s.dataDir, "registry", "repositories", repository, "manifests", reference)
+	log.Printf("DEBUG: Deleting manifest at path: %s", path)
+
+	// First update the in-memory manifest map before deleting files
+	s.mu.Lock()
+	if tags, exists := s.manifest[repository]; exists {
+		newTags := make([]string, 0)
+		for _, tag := range tags {
+			if tag != reference {
+				newTags = append(newTags, tag)
+			}
+		}
+		if len(newTags) > 0 {
+			s.manifest[repository] = newTags
+		} else {
+			// If no tags left, remove the repository entry
+			delete(s.manifest, repository)
+			// Also remove the repository directory if it's empty
+			repoDir := filepath.Join(s.dataDir, "registry", "repositories", repository)
+			if err := os.RemoveAll(repoDir); err != nil {
+				log.Printf("WARNING: Failed to remove empty repository directory %s: %v", repoDir, err)
+			}
+		}
+		log.Printf("DEBUG: Updated tags for repository %s: %v", repository, newTags)
+	}
+	s.mu.Unlock()
+
+	// Delete the manifest file or symlink
 	if err := os.Remove(path); err != nil {
 		if os.IsNotExist(err) {
 			http.NotFound(w, r)
 		} else {
+			log.Printf("ERROR: Failed to delete manifest: %v", err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
-
-	s.mu.Lock()
-	if tags, exists := s.manifest[r.URL.Query().Get("repository")]; exists {
-		newTags := make([]string, 0)
-		for _, tag := range tags {
-			if tag != r.URL.Query().Get("reference") {
-				newTags = append(newTags, tag)
-			}
-		}
-		s.manifest[r.URL.Query().Get("repository")] = newTags
-	}
-	s.mu.Unlock()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -1088,8 +1123,14 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 			return nil
 		}
 
-		repository := parts[0]
-		reference := parts[2]
+		// Get full repository path (including namespace)
+		repository := strings.Join(parts[:len(parts)-2], "/")
+		reference := parts[len(parts)-1]
+
+		// Skip non-tag files unless they are referenced by a tag
+		if (info.Mode()&os.ModeSymlink == 0) && !strings.HasPrefix(reference, "sha256:") {
+			return nil
+		}
 
 		// Handle symlinks (tags)
 		var manifestPath string
@@ -1104,12 +1145,8 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 			manifestReference = target
 			manifestPath = filepath.Join(filepath.Dir(path), target)
 		} else {
-			// This is a manifest file
-			if !strings.HasPrefix(reference, "sha256:") {
-				return nil
-			}
-			manifestReference = reference
-			manifestPath = path
+			// Skip manifest files that aren't referenced by tags
+			return nil
 		}
 
 		log.Printf("DEBUG: Processing manifest for repository %s, reference %s", repository, reference)
@@ -1122,15 +1159,67 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 		}
 
 		var manifest ManifestV2
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			// Try parsing as OCI index
-			var index OCIIndex
-			if err := json.Unmarshal(data, &index); err != nil {
-				log.Printf("WARNING: Error parsing manifest/index file %s: %v", manifestPath, err)
-				return nil
+		if err := json.Unmarshal(data, &manifest); err == nil {
+			// For single-platform manifests
+			var totalSize int64
+
+			// Add manifest size
+			totalSize += info.Size()
+
+			// Add config size
+			if manifest.Config.Digest != "" {
+				totalSize += manifest.Config.Size
 			}
-			// Handle OCI index
+
+			// Add layer sizes
+			for _, layer := range manifest.Layers {
+				totalSize += layer.Size
+			}
+
+			imageInfo := ImageInfo{
+				Repository: repository,
+				Name:       strings.Split(repository, "/")[len(strings.Split(repository, "/"))-1],
+				Tag:        reference,
+				MediaType:  manifest.MediaType,
+				Digest:     manifestReference,
+				Size:       totalSize,
+				Created:    info.ModTime(),
+			}
+
+			// Copy layers
+			imageInfo.Layers = make([]LayerInfo, len(manifest.Layers))
+			for i, layer := range manifest.Layers {
+				imageInfo.Layers[i] = LayerInfo{
+					MediaType: layer.MediaType,
+					Digest:    layer.Digest,
+					Size:      layer.Size,
+				}
+			}
+
+			images = append(images, imageInfo)
+			log.Printf("DEBUG: Added single-platform image info for %s:%s with size %d and %d layers",
+				repository, imageInfo.Tag, imageInfo.Size, len(imageInfo.Layers))
+			return nil
+		}
+
+		// Try parsing as OCI index
+		var index OCIIndex
+		if err := json.Unmarshal(data, &index); err == nil {
+			// Calculate total size for all platforms
+			var totalSize int64
+			var platformManifests []ManifestV2
+
+			// Add the size of the index manifest itself
+			totalSize += info.Size()
+			log.Printf("DEBUG: Index manifest size: %d", info.Size())
+
+			// Skip attestation manifests and collect platform manifests
 			for _, m := range index.Manifests {
+				// Skip attestation manifests
+				if m.Platform != nil && m.Platform.Architecture == "unknown" && m.Platform.OS == "unknown" {
+					continue
+				}
+
 				// Get the actual manifest for this platform
 				platformManifestPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
 				manifestData, err := os.ReadFile(platformManifestPath)
@@ -1145,77 +1234,63 @@ func (s *Server) GetImageInfo() ([]ImageInfo, error) {
 					continue
 				}
 
-				// Calculate total size including config and layers
-				var totalSize int64
-				totalSize += platformManifest.Config.Size
+				platformManifests = append(platformManifests, platformManifest)
+				totalSize += m.Size // Add manifest size
+				log.Printf("DEBUG: Platform manifest size: %d", m.Size)
+
+				// Add config blob size
+				if platformManifest.Config.Digest != "" {
+					totalSize += platformManifest.Config.Size
+					log.Printf("DEBUG: Platform config size: %d", platformManifest.Config.Size)
+				}
+
+				// Add layer sizes
 				for _, layer := range platformManifest.Layers {
 					totalSize += layer.Size
+					log.Printf("DEBUG: Platform layer size: %d", layer.Size)
 				}
+			}
 
-				imageInfo := ImageInfo{
-					Repository: repository,
-					Name:       repository,
-					Tag: func() string {
-						if info.Mode()&os.ModeSymlink != 0 {
-							return reference
-						}
-						return "latest"
-					}(),
-					MediaType: m.MediaType,
-					Digest:    m.Digest,
-					Size:      totalSize,
-					Created:   info.ModTime(),
-					Platform:  m.Platform,
+			// Create a single image info with combined size
+			imageInfo := ImageInfo{
+				Repository: repository,
+				Name:       strings.Split(repository, "/")[len(strings.Split(repository, "/"))-1],
+				Tag:        reference,
+				MediaType:  index.MediaType,
+				Digest:     manifestReference,
+				Size:       totalSize,
+				Created:    info.ModTime(),
+			}
+
+			// Combine all layers from all platform manifests
+			var allLayers []LayerInfo
+			for _, pm := range platformManifests {
+				// Add config as a layer
+				if pm.Config.Digest != "" {
+					allLayers = append(allLayers, LayerInfo{
+						MediaType: pm.Config.MediaType,
+						Digest:    pm.Config.Digest,
+						Size:      pm.Config.Size,
+					})
 				}
-
-				// Copy layers from the platform manifest
-				imageInfo.Layers = make([]LayerInfo, len(platformManifest.Layers))
-				for i, layer := range platformManifest.Layers {
-					imageInfo.Layers[i] = LayerInfo{
+				// Add actual layers
+				for _, layer := range pm.Layers {
+					allLayers = append(allLayers, LayerInfo{
 						MediaType: layer.MediaType,
 						Digest:    layer.Digest,
 						Size:      layer.Size,
-					}
+					})
 				}
-				images = append(images, imageInfo)
 			}
+			imageInfo.Layers = allLayers
+
+			images = append(images, imageInfo)
+			log.Printf("DEBUG: Added multi-platform image info for %s:%s with size %d and %d layers",
+				repository, imageInfo.Tag, imageInfo.Size, len(imageInfo.Layers))
 			return nil
 		}
 
-		// Calculate total size including all layers
-		var totalSize int64
-		totalSize += manifest.Config.Size
-		for _, layer := range manifest.Layers {
-			totalSize += layer.Size
-		}
-
-		imageInfo := ImageInfo{
-			Repository: repository,
-			Name:       repository,
-			Tag: func() string {
-				if info.Mode()&os.ModeSymlink != 0 {
-					return reference
-				}
-				return strings.TrimPrefix(manifestReference, "sha256:")
-			}(),
-			MediaType: manifest.MediaType,
-			Digest:    manifestReference,
-			Size:      totalSize,
-			Created:   info.ModTime(),
-		}
-
-		// Copy layers
-		imageInfo.Layers = make([]LayerInfo, len(manifest.Layers))
-		for i, layer := range manifest.Layers {
-			imageInfo.Layers[i] = LayerInfo{
-				MediaType: layer.MediaType,
-				Digest:    layer.Digest,
-				Size:      layer.Size,
-			}
-		}
-
-		images = append(images, imageInfo)
-		log.Printf("DEBUG: Added image info for %s:%s", repository, imageInfo.Tag)
+		log.Printf("WARNING: Failed to parse manifest as V2 or OCI index: %s", manifestPath)
 		return nil
 	})
 
@@ -1304,6 +1379,13 @@ func (s *Server) DeleteImage(repository, reference string) error {
 		// Try to parse as V2 manifest first
 		var manifest ManifestV2
 		if err := json.Unmarshal(data, &manifest); err == nil {
+			// Delete config blob
+			if manifest.Config.Digest != "" {
+				configPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", manifest.Config.Digest)
+				if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+					log.Printf("WARNING: Failed to delete config blob: %v", err)
+				}
+			}
 			// Delete all layers
 			for _, layer := range manifest.Layers {
 				blobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", layer.Digest)
@@ -1312,23 +1394,44 @@ func (s *Server) DeleteImage(repository, reference string) error {
 					log.Printf("WARNING: Failed to delete layer %s: %v", layer.Digest, err)
 				}
 			}
-			// Delete config blob if it exists
-			if manifest.Config.Digest != "" {
-				configPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", manifest.Config.Digest)
-				if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
-					log.Printf("WARNING: Failed to delete config blob: %v", err)
-				}
-			}
 		} else {
 			// Try to parse as OCI index
 			var index OCIIndex
 			if err := json.Unmarshal(data, &index); err == nil {
-				// Delete all manifests in the index
+				// Delete all platform-specific manifests and their blobs
 				for _, m := range index.Manifests {
-					blobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
-					log.Printf("DEBUG: Deleting manifest blob at: %s", blobPath)
-					if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
-						log.Printf("WARNING: Failed to delete manifest %s: %v", m.Digest, err)
+					// Skip attestation manifests
+					if m.Platform != nil && m.Platform.Architecture == "unknown" && m.Platform.OS == "unknown" {
+						continue
+					}
+
+					// Get and delete the platform-specific manifest
+					platformManifestPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", m.Digest)
+					platformData, err := os.ReadFile(platformManifestPath)
+					if err == nil {
+						var platformManifest ManifestV2
+						if err := json.Unmarshal(platformData, &platformManifest); err == nil {
+							// Delete config blob
+							if platformManifest.Config.Digest != "" {
+								configPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", platformManifest.Config.Digest)
+								if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+									log.Printf("WARNING: Failed to delete platform config blob: %v", err)
+								}
+							}
+							// Delete all layers
+							for _, layer := range platformManifest.Layers {
+								blobPath := filepath.Join(s.dataDir, "registry", "repositories", repository, "blobs", layer.Digest)
+								log.Printf("DEBUG: Deleting platform layer at: %s", blobPath)
+								if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
+									log.Printf("WARNING: Failed to delete platform layer %s: %v", layer.Digest, err)
+								}
+							}
+						}
+					}
+
+					// Delete the platform manifest blob itself
+					if err := os.Remove(platformManifestPath); err != nil && !os.IsNotExist(err) {
+						log.Printf("WARNING: Failed to delete platform manifest %s: %v", m.Digest, err)
 					}
 				}
 			} else {
@@ -1354,7 +1457,18 @@ func (s *Server) DeleteImage(repository, reference string) error {
 				newTags = append(newTags, tag)
 			}
 		}
-		s.manifest[repository] = newTags
+		if len(newTags) > 0 {
+			s.manifest[repository] = newTags
+		} else {
+			// If no tags left, remove the repository entry
+			delete(s.manifest, repository)
+			// Also remove the repository directory if it's empty
+			repoDir := filepath.Join(s.dataDir, "registry", "repositories", repository)
+			if err := os.RemoveAll(repoDir); err != nil {
+				log.Printf("WARNING: Failed to remove empty repository directory %s: %v", repoDir, err)
+			}
+		}
+		log.Printf("DEBUG: Updated tags for repository %s: %v", repository, newTags)
 	}
 	s.mu.Unlock()
 
@@ -1379,44 +1493,17 @@ func (s *Server) handleTagsList(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("DEBUG: Looking up tags for repository: %s", repository)
 
-	// Get manifest directory path
-	manifestDir, err := s.paths.GetRepositoryManifestsDir(repository)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	// Get tags from in-memory map
+	s.mu.RLock()
+	tags, exists := s.manifest[repository]
+	s.mu.RUnlock()
+
+	if !exists || len(tags) == 0 {
+		// Return empty object if repository doesn't exist or has no tags
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{}"))
 		return
 	}
-
-	// Get list of tags from filesystem
-	var tags []string
-	entries, err := os.ReadDir(manifestDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "Repository not found", http.StatusNotFound)
-			return
-		}
-		log.Printf("ERROR: Failed to read manifests directory: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	// Collect tags from manifest directory
-	for _, entry := range entries {
-		// Skip directories and digest files
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), "sha256:") {
-			continue
-		}
-
-		// Add tag to list
-		tags = append(tags, entry.Name())
-	}
-
-	// Sort tags for consistent output
-	sort.Strings(tags)
-
-	// Update in-memory manifest map
-	s.mu.Lock()
-	s.manifest[repository] = tags
-	s.mu.Unlock()
 
 	// Write response
 	w.Header().Set("Content-Type", "application/json")

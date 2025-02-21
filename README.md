@@ -17,7 +17,7 @@
   <p><strong>Cyberpunk Docker Registry Interface</strong></p>
   <p>🐳 Docker Registry | 🌍 Web UI | ⚡ Fast | 🎨 Beautiful | 🔒 Secure</p>
   <p>
-    <img src="https://img.shields.io/badge/version-0.3.0d-blue.svg" alt="Version 0.4.0">
+    <img src="https://img.shields.io/badge/version-0.3.1d-blue.svg" alt="Version 0.3.1d">
     <img src="https://img.shields.io/badge/go-%3E%3D1.21-00ADD8.svg" alt="Go Version">
     <img src="https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20docker-brightgreen.svg" alt="Platform Support">
     <img src="https://img.shields.io/badge/license-GPLv3-green.svg" alt="License">
@@ -153,6 +153,9 @@ Command line flags:
 ```
 
 ## ⚡️ Updates
+
+- 0.3.1d:
+  - Added project group and name to the UI (issue #3)
 
 - 0.3.0d:
   - Added storage efficiency analysis

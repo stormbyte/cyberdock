@@ -70,11 +70,11 @@ func (s *Server) Start() error {
 	s.router.HandleFunc("/static/{type}/{file}", s.handleStatic)
 
 	// API routes
-	s.router.HandleFunc("/api/images", s.handleImages)
-	s.router.HandleFunc("/api/images/{repository}/{reference}", s.handleImages)
-	s.router.HandleFunc("/api/tags", s.handleTags)
-	s.router.HandleFunc("/api/purge", s.handlePurge)
-	s.router.HandleFunc("/api/disk-usage", s.handleDiskUsage)
+	s.router.HandleFunc("/api/images", s.handleImages).Methods("GET")
+	s.router.HandleFunc("/api/images/{repository:.*}/{reference}", s.handleImages).Methods("GET", "DELETE")
+	s.router.HandleFunc("/api/tags", s.handleTags).Methods("GET")
+	s.router.HandleFunc("/api/purge", s.handlePurge).Methods("POST")
+	s.router.HandleFunc("/api/disk-usage", s.handleDiskUsage).Methods("GET")
 
 	// Start monitoring disk usage
 	go s.monitorDiskUsage()
@@ -148,9 +148,20 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	vars := mux.Vars(r)
+	repository := vars["repository"]
+	reference := vars["reference"]
+
 	switch r.Method {
 	case http.MethodGet:
-		// Get image information directly from registry
+		if repository != "" && reference != "" {
+			// Handle single image request
+			// TODO: Implement if needed
+			http.Error(w, "Not implemented", http.StatusNotImplemented)
+			return
+		}
+
+		// Get all images
 		images, err := s.registry.GetImageInfo()
 		if err != nil {
 			log.Printf("ERROR: Failed to get image info: %v", err)
@@ -171,10 +182,6 @@ func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodDelete:
-		vars := mux.Vars(r)
-		repository := vars["repository"]
-		reference := vars["reference"]
-
 		if repository == "" || reference == "" {
 			log.Printf("ERROR: Missing repository or reference in delete request")
 			http.Error(w, "Repository and reference are required", http.StatusBadRequest)

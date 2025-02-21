@@ -50,19 +50,20 @@ header h1 {
 }
 
 .registry-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-    gap: 1rem;
-    padding: 0.5rem;
+    display: block;
+    width: 100%;
 }
 
 .repository-item {
+    margin-bottom: 1rem;
+    width: 100%;
     border: 1px solid var(--neon-green);
     background: rgba(0, 0, 0, 0.9);
     padding: 1rem;
-    margin-bottom: 1rem;
+    box-sizing: border-box;
     box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
     transition: all 0.3s ease;
+    overflow: hidden;
 }
 
 .repository-item:hover {
@@ -287,6 +288,9 @@ footer {
     background: rgba(0, 0, 0, 0.8);
     border: 1px solid var(--neon-green);
     margin-bottom: 0.5rem;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .stat-block {
@@ -1195,4 +1199,39 @@ footer {
     font-size: 0.8rem;
     color: #888;
     margin-top: 0.5rem;
+}
+
+.project-group {
+    margin-bottom: 2rem;
+    padding: 1rem;
+    background: rgba(0, 255, 0, 0.02);
+    border: 1px solid var(--neon-green);
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.project-name {
+    color: var(--neon-green);
+    font-size: 1.2rem;
+    margin: 0 0 1rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+    text-shadow: 0 0 5px var(--neon-green);
+}
+
+.platform-badge {
+    background: rgba(0, 255, 255, 0.1);
+    border: 1px solid #00ffff;
+    color: #00ffff;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.8rem;
+    border-radius: 2px;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 5px #00ffff;
+}
+
+.platform-badge:hover {
+    background: rgba(0, 255, 255, 0.2);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
 }

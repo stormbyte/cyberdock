@@ -22,7 +22,7 @@ import (
 const (
 	defaultRegistryPort = 5000
 	defaultUIPort       = 5001
-	version             = "0.3.0d"
+	version             = "0.3.1d"
 )
 
 // These will be set at build time
