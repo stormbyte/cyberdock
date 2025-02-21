@@ -100,6 +100,15 @@ docker run -d --name cyberdock -p 5000:5000 -p 5001:5001 mattrogers/cyberdock:la
    - Registry: https://localhost:5000
    - Web UI: https://localhost:5001
 
+If you have a mac 🍏 host and want to work around the port conflicts.
+```bash
+docker run -d --name cyberdock -p 5005:5000 -p 5006:5001 -mattrogers/cyberdock:latest
+```
+
+1. Access the interfaces:
+   - Registry: https://localhost:5005
+   - Web UI: https://localhost:5006
+
 ## 💻 Usage
 
 CyberDock runs two servers:
